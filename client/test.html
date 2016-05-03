@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Microservice Test</title>
+    <style>
+        #results {
+            font-family: "Courier New", sans-serif;
+            font-size: 12px;
+            margin: 10px 0;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <button onclick="start(); return false;">Start</button>
+    <div id="results">
+    </div>
+<script>
+
+var _accessToken = null;
+
+function start() {
+    log("Starting...", true);
+
+    login(function(){
+        resetConfigurations(function() {
+            createConfigurations(function() {
+                updateConfigurations(function() {
+                    fetchConfigurations(function() {
+                        logout(function() {
+                            fetchAndCheckConfiguration('cfg-1', 403);
+                        });
+                    });
+                });
+            });
+        });
+    });
+}
+
+/**
+ * Login test
+ */
+function login(cb) {
+    log('Logging in');
+
+    _accessToken = null;
+
+    ajax('/v1/auth/login', {
+        data: {username: 'admin', password: 'secret'},
+        method: 'POST'
+    }, function(err, xhr) {
+        if (xhr.status == 200) {
+            var json = JSON.parse(xhr.response);
+            _accessToken = json['x-access-token'];
+            log('Login successful, accessToken=' + _accessToken);
+            if (cb) {cb();}
+        } else {
+            error('Error logging in: ' + xhr.status);
+        }
+    });
+}
+
+/**
+ * Logout test
+ */
+function logout(cb) {
+    log('Logging out');
+
+    ajax('/v1/auth/logout', {
+        method: 'POST',
+        headers: {'x-access-token': _accessToken }
+    }, function(err, xhr) {
+        if (xhr.status == 204) {
+            log('Logged out');
+            if (cb) {cb();}
+        } else {
+            error('Error logging out: ' + xhr.status);
+        }
+    });
+}
+/**
+ * Delete all existing configurations
+ */
+function resetConfigurations(cb) {
+    log('Fetching configurations');
+    ajax('/v1/configurations', {headers: {'x-access-token': _accessToken}}, function(err, xhr) {
+        if (xhr.status == 200) {
+            var json = JSON.parse(xhr.response);
+            var configurations = json.configurations;
+            log('Retrieved: ' + configurations.length + ' records.');
+            var remaining = configurations.length;
+            if (remaining === 0) {
+                if (cb) {
+                    cb();
+                }
+                return;
+            }
+            for (var i = 0, len = configurations.length ; i < len ; ++i) {
+                var cfg = configurations[i];
+                ajax('/v1/configurations/' + cfg.name, {
+                    method: 'DELETE',
+                    headers: {'x-access-token': _accessToken}
+                }, function(err, xhr) {
+                    if (xhr.status == 204) {
+                        log('Configuration deleted');
+                        --remaining;
+                        if (remaining === 0 && cb) {
+                            cb();
+                        }
+                    }
+                    else {
+                        error('Error deleting configuration: ' + xhr.status);
+                    }
+                });
+            }
+
+
+        } else {
+            error('Could not retrieve configurations.');
+        }
+    });
+}
+
+/**
+ * Creates the initial set of 10 configurations
+ */
+function createConfigurations(cb) {
+    //valid configurations
+    var remaining = 10;
+    for (var i = 0 ; i < remaining ; ++i) {
+        var rec = {
+            name: 'cfg-' + i,
+            hostname: 'cfg-' + i + '.com',
+            port: 1001 - i
+        };
+        saveConfiguration(rec, function(err, xhr) {
+            if (xhr.status == 201) {
+                log('Configuration created.');
+            }
+            else {
+                error('Error creating configuration: ' + xhr.status);
+            }
+            --remaining;
+            if (remaining == 0) {
+                if (cb) {cb();}
+            }
+        });
+    }
+}
+
+/**
+ * Updates the initial set of 10 configurations
+ */
+function updateConfigurations(cb) {
+    //valid configurations
+    var remaining = 10;
+    for (var i = 0 ; i < remaining ; ++i) {
+        var rec = {
+            name: 'cfg-' + i,
+            hostname: 'cfg-' + i + '.com',
+            port: (2001 - i) * (i %2 == 0 ? -1 : 1)
+        };
+
+        saveConfiguration(rec, function(err, xhr) {
+            if (xhr.status == 204) {
+                log('Configuration updated.');
+            }
+            else if (xhr.status == 400) {
+                var json = JSON.parse(xhr.response);
+                if (json.errors && json.errors.length) {
+                    log('Configuration rejected (expected)');
+                }
+                else {
+                    error('Error updating configuration: ' + xhr.status);
+                }
+            }
+            else {
+                error('Error updating configuration: ' + xhr.status);
+            }
+            --remaining;
+            if (remaining == 0) {
+                if (cb) {cb();}
+            }
+        });
+    }
+}
+
+/**
+ * Saves the configuration
+ */
+function saveConfiguration(cfg, cb) {
+    ajax('/v1/configurations/' + cfg.name, {
+        method: 'PUT',
+        headers: {'x-access-token': _accessToken},
+        data: cfg
+    }, function(err, xhr) {
+        cb(err, xhr);
+    });
+}
+
+/**
+ * Saves the configuration
+ */
+function fetchConfiguration(name, cb) {
+    ajax('/v1/configurations/' + name, {
+        method: 'GET',
+        headers: {'x-access-token': _accessToken}
+    }, function(err, xhr) {
+        if (cb) {cb(err, xhr);}
+    });
+}
+
+/**
+ * Fetches the configuration and checks the return
+ */
+function fetchAndCheckConfiguration(name, status, expectedValues, cb) {
+    fetchConfiguration(name, function(err, xhr) {
+        if (xhr.status != status) {
+            error('Unexpected fetch status: ' + xhr.status + ', expecting: ' + status);
+        }
+        var cfg;
+        if (xhr.status == 200) {
+            cfg = JSON.parse(xhr.response);
+        }
+
+        if (expectedValues != null) {
+            if (cfg == null) {
+                error('Cannot compare values');
+            }
+            else {
+                for(var p in expectedValues) {
+                    if (expectedValues.hasOwnProperty(p)) {
+                        var v1 = expectedValues[p];
+                        var v2 = cfg[p];
+
+                        if (v1 != v2) {
+                            error('Unexpected value: ' + v2 + ', expected: ' + v1);
+                        }
+                    }
+                }
+            }
+        }
+        log('Check completed for: ' + name);
+        if (cb) {cb(cfg);}
+
+    });
+}
+
+/**
+ * Fetch configurations
+ */
+function fetchConfigurations(cb) {
+    log('Fetching configurations');
+    ajax('/v1/configurations?start=2&limit=3&sort=-port,name', {headers: {'x-access-token': _accessToken}}, function(err, xhr) {
+
+        var remaining = 3;
+        if (xhr.status == 200) {
+            var list = JSON.parse(xhr.response).configurations;
+            if (list.length == 3) {
+                if (list[0].port != '1996' && list[0].host != 'cfg-5' && list[0].username != 'admin') {
+                    error('Unexpected: ' + JSON.stringify(list[0]));
+                }
+                if (list[1].port != '1994' && list[1].host != 'cfg-7' && list[1].username != 'admin') {
+                    error('Unexpected: ' + JSON.stringify(list[1]));
+                }
+                if (list[2].port != '1992' && list[2].host != 'cfg-9' && list[2].username != 'admin') {
+                    error('Unexpected: ' + JSON.stringify(list[2]));
+                }
+
+                log('Fetch first pass complete.');
+                for (var i = 0, len = list.length ; i < len ; ++i) {
+                    fetchAndCheckConfiguration(list[i].name, 200, list[i], function() {
+                        --remaining;
+                        if (remaining == 0) {
+                            if (cb) {cb();}
+                        }
+                    })
+                }
+            }
+            else {
+                error('Unexpected response');
+            }
+        }
+        else {
+            error('Error fetching configurations: ' +xhr.status)
+        }
+    });
+}
+
+/**
+ * Ajax utility method
+ * @param url
+ * @param opts
+ * @param cb
+ */
+function ajax(url, opts, cb) {
+    if (!cb && typeof(opts) === 'function') {
+        cb = opts;
+        opts = {};
+    } else {
+        opts = opts || {};
+    }
+    var xhr = new XMLHttpRequest();
+    xhr.open(opts.method || 'GET', url);
+
+    if (opts.headers) {
+        for (var name in opts.headers) {
+            if (opts.headers.hasOwnProperty(name)) {
+                var val = opts.headers[name];
+                if (val) {
+                    xhr.setRequestHeader(name, val);
+                }
+            }
+        }
+    }
+    xhr.onload = function() {
+        if (cb ) {
+            cb(null, xhr);
+        }
+    };
+
+    xhr.onerror = function(err) {
+        if (cb) {
+            cb(err, xhr);
+        }
+    };
+
+    var data;
+    if (typeof(opts.data) === 'object') {
+        data = JSON.stringify(opts.data);
+    }
+    else {
+        data = opts.data ? opts.data.toString() : null;
+    }
+
+    xhr.send(data);
+}
+
+/**
+ * Log an error message
+ */
+function error(message) {
+    console.error(message);
+    log('<span class="error">' + message + '</span>');
+}
+
+/**
+ * Log a message
+ */
+function log(message, replace) {
+    var div = document.getElementById('results');
+    if (!replace) {
+        message = div.innerHTML + '<br/>' + message;
+    }
+    div.innerHTML = message;
+}
+
+</script>
+</body>
+</html>

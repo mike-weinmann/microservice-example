@@ -1,0 +1,11 @@
+{
+  "name": "tenanble",
+  "version": "1.0.0",
+  "description": "Tenable microservice example",
+  "main": "server.js",
+  "scripts": {
+    "test": "node test/test.js"
+  },
+  "author": "Mike Weinmann",
+  "license": "ISC"
+}

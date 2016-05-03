@@ -1,0 +1,28 @@
+{
+  "configurations": [
+    {
+      "name": "host2b",
+      "hostname": "host2b.com",
+      "port": 2002,
+      "username": "user-b"
+    },
+    {
+      "name": "host2a",
+      "hostname": "host2a.com",
+      "port": 2001,
+      "username": "user-a"
+    },
+    {
+      "name": "host1a",
+      "hostname": "host1a.com",
+      "port": 1001,
+      "username": "user-a"
+    },
+    {
+      "name": "host1b",
+      "hostname": "host1b.com",
+      "port": 1001,
+      "username": "user-b"
+    }
+  ]
+}
